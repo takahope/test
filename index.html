@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多選列表範例 (含條碼掃描)</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 html5-qrcode 函式庫 -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        /* 使用 Inter 字體 */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* 確保掃描器 UI 不會太高 */
+        #scanner-container > div {
+            max-height: 500px;
+        }
+        /* 掃描器外框的過渡效果 */
+        #scanner-container {
+            transition: border-color 0.1s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">項目選擇器</h1>
+
+        <!-- 條碼掃描輸入 (手動) -->
+        <div class="mb-4">
+            <label for="barcode-input" class="block text-sm font-medium text-gray-700 mb-1">條碼掃描 (手動輸入)</label>
+            <input type="text" id="barcode-input" placeholder="請手動輸入條碼後按Enter..." class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+            <p id="barcode-error" class="text-red-500 text-sm mt-1 hidden">找不到此條碼對應的項目。</p>
+        </div>
+
+        <!-- 攝影機掃描控制 -->
+        <div class="mb-4">
+            <!-- 啟動按鈕 -->
+            <button id="start-scan-btn" class="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                啟動鏡頭掃描
+            </button>
+            <!-- 停止按鈕 (預設隱藏) -->
+            <button id="stop-scan-btn" class="w-full hidden bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                停止鏡頭掃描
+            </button>
+        </div>
+
+        <!-- 掃描器 UI (移到列表上方) -->
+        <!-- 加入 border-2 和 border-transparent 以防止閃爍時跳動 -->
+        <div id="scanner-container" class="w-full mb-4 rounded-lg overflow-hidden border-2 border-transparent" style="display: none;">
+            <!-- 掃描器 UI 將被渲染到這裡 -->
+        </div>
+
+        
+        <div class="flex flex-col md:flex-row md:space-x-6">
+            
+            <!-- 1. 可用項目列表 -->
+            <div class="flex-1 mb-6 md:mb-0">
+                <h2 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">可用項目</h2>
+                <div id="available-items" class="space-y-2">
+                    <!-- 項目將由 JavaScript 動態載入 -->
+                </div>
+            </div>
+            
+            <!-- 2. 已選項目列表 -->
+            <div class="flex-1">
+                <h2 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">已選項目</h2>
+                <div id="selected-items" class="space-y-2 min-h-[100px] bg-gray-50 p-3 rounded-md border border-gray-200">
+                    <p id="selected-placeholder" class="text-gray-400 text-sm">尚未選擇任何項目...</p>
+                    <!-- 已選項目將被添加到這裡 -->
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 模擬的數據 (增加 barcode 欄位)
+            const items = [
+                { id: 'item1', name: '選項 A', barcode: '31401010100030002686' },
+                { id: 'item2', name: '選項 B', barcode: '987654321' },
+                { id: 'item3', name: '選項 C', barcode: '111222333' },
+                { id: 'item4', name: '選項 D', barcode: '444555666' },
+                { id: 'item5', name: '選項 E', barcode: '777888999' }
+            ];
+
+            // DOM 元素
+            const availableItemsContainer = document.getElementById('available-items');
+            const selectedItemsContainer = document.getElementById('selected-items');
+            const selectedPlaceholder = document.getElementById('selected-placeholder');
+            const barcodeInput = document.getElementById('barcode-input');
+            const barcodeError = document.getElementById('barcode-error');
+            const startScanBtn = document.getElementById('start-scan-btn');
+            const stopScanBtn = document.getElementById('stop-scan-btn'); // 新增
+            const scannerContainer = document.getElementById('scanner-container');
+            
+            let html5QrcodeScanner; // 用於儲存掃描器實例
+
+            // --- 音效反饋 ---
+            let audioContext;
+            let oscillator;
+            
+            // 點擊頁面任一處來初始化 AudioContext (瀏覽器策略)
+            document.body.addEventListener('click', () => {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }, { once: true });
+
+            function playBeep() {
+                if (!audioContext) return;
+                oscillator = audioContext.createOscillator();
+                oscillator.type = 'sine'; // 正弦波
+                oscillator.frequency.setValueAtTime(600, audioContext.currentTime); // 頻率 600 Hz
+                oscillator.connect(audioContext.destination);
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.1); // 持續 0.1 秒
+            }
+            
+            // --- 視覺反饋 ---
+            function flashScannerSuccess(status = 'success') {
+                let colorClass = 'border-green-500'; // 成功
+                if (status === 'warning') {
+                    colorClass = 'border-yellow-500'; // 已存在
+                } else if (status === 'error') {
+                    colorClass = 'border-red-500'; // 找不到
+                }
+
+                scannerContainer.classList.add(colorClass);
+                setTimeout(() => {
+                    scannerContainer.classList.remove(colorClass);
+                }, 300); // 閃爍 300 毫秒
+            }
+
+
+            /**
+             * 處理條碼的核心函式 (重構)
+             * @param {string} barcodeValue 原始條碼
+             * @returns {'added' | 'exists' | 'not_found'} 處理狀態
+             */
+            function processBarcode(barcodeValue) {
+                let processedBarcode = barcodeValue.trim();
+                if (processedBarcode === '') return 'not_found';
+
+                // --- 條碼資料處理邏輯 ---
+                if (processedBarcode.length === 20 && processedBarcode.startsWith('18')) {
+                    processedBarcode = processedBarcode.substring(2);
+                    console.log('條碼處理完成:', processedBarcode);
+                }
+                
+                // 查找條碼
+                const matchedItem = items.find(item => item.barcode === processedBarcode);
+
+                if (matchedItem) {
+                    const checkbox = document.getElementById(matchedItem.id);
+                    if (checkbox && !checkbox.checked) {
+                        checkbox.checked = true;
+                        updateSelectedItems();
+                        return 'added'; // 成功新增
+                    } else if (checkbox) {
+                        return 'exists'; // 已存在
+                    }
+                }
+                
+                return 'not_found'; // 找不到
+            }
+
+            // --- 條碼掃描監聽 (手動) ---
+            barcodeInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' || event.keyCode === 13) {
+                    event.preventDefault(); 
+                    const status = processBarcode(barcodeInput.value);
+                    
+                    if (status === 'not_found') {
+                        barcodeError.classList.remove('hidden');
+                        barcodeInput.classList.add('border-red-500');
+                    } else {
+                        barcodeError.classList.add('hidden');
+                        barcodeInput.classList.remove('border-red-500');
+                    }
+                    barcodeInput.value = ''; // 清空輸入框
+                }
+            });
+
+            // --- 鏡頭掃描 (啟動) ---
+            startScanBtn.addEventListener('click', function() {
+                scannerContainer.style.display = 'block';
+                startScanBtn.classList.add('hidden');
+                stopScanBtn.classList.remove('hidden'); // 顯示停止按鈕
+
+                // 掃描成功的回呼
+                function onScanSuccess(decodedText, decodedResult) {
+                    console.log(`掃描成功: ${decodedText}`);
+                    
+                    const status = processBarcode(decodedText);
+                    
+                    if (status === 'added') {
+                        playBeep(); // 播放音效
+                        flashScannerSuccess('success'); // 綠色
+                    } else if (status === 'exists') {
+                        flashScannerSuccess('warning'); // 黃色
+                    } else {
+                        flashScannerSuccess('error'); // 紅色
+                    }
+                    // *** 不停止掃描，實現連續掃描 ***
+                }
+
+                function onScanFailure(error) {
+                    // 忽略，以實現連續掃描
+                }
+
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "scanner-container", 
+                    { 
+                        fps: 10,
+                        qrbox: { width: 250, height: 150 },
+                        supportedScanTypes: [ Html5QrcodeScanType.SCAN_TYPE_CAMERA ],
+                        facingMode: "environment" // 優先使用後置鏡頭
+                    },
+                    false
+                );
+                
+                html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+            });
+
+            // --- 鏡頭掃描 (停止) ---
+            stopScanBtn.addEventListener('click', function() {
+                if (html5QrcodeScanner) {
+                    html5QrcodeScanner.clear().then(() => {
+                        console.log("掃描器已停止。");
+                        scannerContainer.style.display = 'none';
+                        startScanBtn.classList.remove('hidden');
+                        stopScanBtn.classList.add('hidden');
+                    }).catch(err => {
+                        console.error("停止掃描時出錯:", err);
+                        // 即使出錯也強制隱藏
+                        scannerContainer.style.display = 'none';
+                        startScanBtn.classList.remove('hidden');
+                        stopScanBtn.classList.add('hidden');
+                    });
+                }
+            });
+
+
+            // 1. 渲染可用項目列表
+            items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'flex items-center p-2 rounded-md hover:bg-gray-50 transition-colors';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = item.id;
+                checkbox.value = item.name;
+                checkbox.className = 'h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer';
+                
+                const label = document.createElement('label');
+                label.htmlFor = item.id;
+                label.textContent = `${item.name} (條碼: ${item.barcode})`; // 顯示條碼以便測試
+                label.className = 'ml-3 block text-sm font-medium text-gray-700 cursor-pointer';
+                
+                itemDiv.appendChild(checkbox);
+                itemDiv.appendChild(label);
+                availableItemsContainer.appendChild(itemDiv);
+
+                // 2. 監聽勾選事件
+                checkbox.addEventListener('change', function(event) {
+                    updateSelectedItems();
+                });
+            });
+
+            // 3. 更新已選項目區域的函數
+            function updateSelectedItems() {
+                // 清空已選區域
+                selectedItemsContainer.innerHTML = '';
+                
+                const checkedBoxes = availableItemsContainer.querySelectorAll('input[type="checkbox"]:checked');
+                
+                if (checkedBoxes.length === 0) {
+                    selectedItemsContainer.appendChild(selectedPlaceholder);
+                } else {
+                    checkedBoxes.forEach(cb => {
+                        const selectedTag = document.createElement('div');
+                        selectedTag.className = 'inline-flex items-center bg-blue-100 text-blue-800 text-sm font-medium m-1 px-2.5 py-0.5 rounded-full';
+                        selectedTag.textContent = cb.value;
+                        selectedTag.dataset.id = cb.id; 
+                        selectedItemsContainer.appendChild(selectedTag);
+                    });
+                }
+            }
+
+            // 初始加載
+            updateSelectedItems();
+        });
+    </script>
+
+</body>
+</html>
+
+
