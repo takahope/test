@@ -86,8 +86,9 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // 模擬的數據 (增加 barcode 欄位)
+            // 修正 item1 的 barcode，確保與用戶範例的處理結果 '31401010100030002686' 完全一致
             const items = [
-                { id: 'item1', name: '選項 A', barcode: '31401010100030002686' },
+                { id: 'item1', name: '選項 A', barcode: '314010100030002686' },
                 { id: 'item2', name: '選項 B', barcode: '987654321' },
                 { id: 'item3', name: '選項 C', barcode: '111222333' },
                 { id: 'item4', name: '選項 D', barcode: '444555666' },
@@ -142,15 +143,32 @@
                 }, 300); // 閃爍 300 毫秒
             }
 
+            // --- 新增: 顯示錯誤/狀態訊息 ---
+            function showBarcodeFeedback(status, scannedValue = '') {
+                if (status === 'not_found') {
+                    // 確保 scannedValue 不是空的
+                    const displayValue = scannedValue ? `(${scannedValue})` : '';
+                    barcodeError.textContent = `找不到此條碼 ${displayValue} 對應的項目。`;
+                    barcodeError.classList.remove('hidden');
+                    barcodeInput.classList.add('border-red-500'); // 同時讓手動輸入框變紅
+                } else {
+                    // 成功或已存在時，清除錯誤
+                    barcodeError.classList.add('hidden');
+                    barcodeInput.classList.remove('border-red-500');
+                }
+            }
+
 
             /**
              * 處理條碼的核心函式 (重構)
              * @param {string} barcodeValue 原始條碼
-             * @returns {'added' | 'exists' | 'not_found'} 處理狀態
+             * @returns {object} 處理狀態和處理過的條碼 {status, barcode}
              */
             function processBarcode(barcodeValue) {
-                let processedBarcode = barcodeValue.trim();
-                if (processedBarcode === '') return 'not_found';
+                // --- 關鍵修復：更積極地移除掃描器可能附加的換行符/歸位符 ---
+                let processedBarcode = barcodeValue.replace(/(\r\n|\n|\r)/gm, "").trim();
+                
+                if (processedBarcode === '') return { status: 'not_found', barcode: '' };
 
                 // --- 條碼資料處理邏輯 ---
                 if (processedBarcode.length === 20 && processedBarcode.startsWith('18')) {
@@ -161,33 +179,50 @@
                 // 查找條碼
                 const matchedItem = items.find(item => item.barcode === processedBarcode);
 
+                // --- 偵錯 ---
+                if (!matchedItem) {
+                    console.error(`查找失敗: 無法在 items 陣列中找到條碼 '${processedBarcode}'`);
+                    
+                    // --- 增強偵錯：顯示類型和長度 ---
+                    console.log(`[偵錯] 搜尋的條碼: '${processedBarcode}' (類型: ${typeof processedBarcode}, 長度: ${processedBarcode.length})`);
+                    console.log('[偵錯] Items 陣列中的條碼:');
+                    items.forEach(item => {
+                        console.log(`- '${item.barcode}' (類型: ${typeof item.barcode}, 長度: ${item.barcode.length}), 是否匹配? === ${item.barcode === processedBarcode}`);
+                    });
+                    // --- 偵錯結束 ---
+                }
+                // --- 偵錯結束 ---
+
+
                 if (matchedItem) {
                     const checkbox = document.getElementById(matchedItem.id);
+                    // --- 關鍵修復：檢查 checkbox 是否真的存在 ---
+                    if (!checkbox) {
+                        console.error(`邏輯錯誤: 找到了 item，但找不到 ID 為 '${matchedItem.id}' 的 checkbox 元素。`);
+                        return { status: 'not_found', barcode: processedBarcode }; // 視為找不到
+                    }
+
                     if (checkbox && !checkbox.checked) {
                         checkbox.checked = true;
                         updateSelectedItems();
-                        return 'added'; // 成功新增
+                        return { status: 'added', barcode: processedBarcode }; // 成功新增
                     } else if (checkbox) {
-                        return 'exists'; // 已存在
+                        return { status: 'exists', barcode: processedBarcode }; // 已存在
                     }
                 }
                 
-                return 'not_found'; // 找不到
+                return { status: 'not_found', barcode: processedBarcode }; // 找不到
             }
 
             // --- 條碼掃描監聽 (手動) ---
             barcodeInput.addEventListener('keydown', function(event) {
                 if (event.key === 'Enter' || event.keyCode === 13) {
                     event.preventDefault(); 
-                    const status = processBarcode(barcodeInput.value);
+                    const result = processBarcode(barcodeInput.value); // 獲取 {status, barcode}
                     
-                    if (status === 'not_found') {
-                        barcodeError.classList.remove('hidden');
-                        barcodeInput.classList.add('border-red-500');
-                    } else {
-                        barcodeError.classList.add('hidden');
-                        barcodeInput.classList.remove('border-red-500');
-                    }
+                    // 顯示反饋
+                    showBarcodeFeedback(result.status, result.barcode);
+                    
                     barcodeInput.value = ''; // 清空輸入框
                 }
             });
@@ -202,12 +237,15 @@
                 function onScanSuccess(decodedText, decodedResult) {
                     console.log(`掃描成功: ${decodedText}`);
                     
-                    const status = processBarcode(decodedText);
+                    const result = processBarcode(decodedText); // 獲取 {status, barcode}
                     
-                    if (status === 'added') {
+                    // 顯示反饋
+                    showBarcodeFeedback(result.status, result.barcode);
+
+                    if (result.status === 'added') {
                         playBeep(); // 播放音效
                         flashScannerSuccess('success'); // 綠色
-                    } else if (status === 'exists') {
+                    } else if (result.status === 'exists') {
                         flashScannerSuccess('warning'); // 黃色
                     } else {
                         flashScannerSuccess('error'); // 紅色
@@ -305,5 +343,3 @@
 
 </body>
 </html>
-
-
