@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多選列表範例 (Quagga2 行動裝置優化版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+    
+    <style>
+        /* (CSS 樣式與前一版相同，此處省略以節省篇幅) */
+        /* ... 您的 CSS 樣式 ... */
+        body { font-family: 'Inter', sans-serif; }
+        #reader { position: relative; width: 100%; min-height: 250px; background: #2c2c2c; border-radius: 0.5rem; overflow: hidden; max-height: 350px; }
+        #reader video, #reader canvas { width: 100% !important; height: auto !important; max-height: 350px; object-fit: cover; }
+        #reader canvas.drawingBuffer { position: absolute; top: 0; left: 0; }
+        @keyframes scanSuccess { 0% { background-color: rgb(34, 197, 94); transform: scale(1); } 50% { transform: scale(1.02); } 100% { background-color: white; transform: scale(1); } }
+        .scan-success { animation: scanSuccess 0.5s ease-out; }
+        #scanner-section select { width: 100%; padding: 0.5rem; margin: 0.5rem 0; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.875rem; background-color: white; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div class="w-full max-w-5xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">項目選擇器 (Quagga2 行動裝置優化)</h1>
+        
+        <div class="mb-4">
+            <label for="barcode-input" class="block text-sm font-medium text-gray-700 mb-1">條碼掃描 (手動輸入)</label>
+            <div class="flex gap-2">
+                <input type="text" id="barcode-input" placeholder="請輸入條碼後按Enter或點擊添加..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                <button id="manual-add-btn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">添加</button>
+            </div>
+            <p id="barcode-error" class="text-red-500 text-sm mt-1 hidden">找不到此條碼對應的項目。</p>
+        </div>
+
+        <div class="mb-4">
+            <button id="start-scan-btn" class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all">
+                啟動鏡頭掃描
+            </button>
+            <button id="stop-scan-btn" class="w-full bg-red-600 text-white px-4 py-3 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all hidden">
+                停止掃描
+            </button>
+        </div>
+
+        <div id="scanner-section" class="hidden mb-6">
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-700">掃描預覽</h3>
+                    <span class="text-xs text-green-600 font-medium animate-pulse">● 掃描中...</span>
+                </div>
+                <div class="mb-2">
+                    <label for="camera-select" class="text-xs text-gray-600">選擇相機:</label>
+                    <select id="camera-select" class="w-full text-xs p-1 border border-gray-300 rounded-md"></select>
+                </div>
+                <div id="reader" class="w-full"></div>
+                <div id="scan-result" class="mt-3 p-3 bg-white rounded-md text-sm">
+                    <span class="text-gray-400">等待掃描條碼...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">可用項目</h2>
+                <div id="available-items" class="space-y-2 max-h-[400px] overflow-y-auto pr-2"></div>
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">
+                    已選項目 <span id="selected-count" class="text-sm font-normal text-gray-500">(0)</span>
+                    <button id="clear-all-btn" class="float-right text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded hidden">清除全部</button>
+                </h2>
+                <div id="selected-items" class="min-h-[100px] max-h-[400px] overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200">
+                    <p id="selected-placeholder" class="text-gray-400 text-sm">尚未選擇任何項目...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="scan-log" class="mt-6 p-3 bg-blue-50 rounded-lg hidden">
+            <h3 class="text-sm font-semibold text-blue-800 mb-2">最近掃描記錄</h3>
+            <div id="scan-log-list" class="space-y-1 text-xs text-blue-700 max-h-24 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        // 全域變數
+        let isScanning = false;
+        let lastScannedCode = '';
+        let scanCooldown = null;
+        
+        // 模擬數據
+        const items = [
+            { id: 'item1', name: '選項 A', barcode: '314010100030002686' },
+            { id: 'item2', name: '選項 B', barcode: '987654321' },
+            { id: 'item3', name: '選項 C', barcode: '111222333' },
+            { id: 'item4', name: '選項 D', barcode: '444555666' },
+            { id: 'item5', name: '選項 E', barcode: '777888999' },
+            { id: 'item6', name: '選項 F', barcode: '123456789012' },
+            { id: 'item7', name: '選項 G', barcode: '210987654321' }
+        ];
+        
+        // DOM 元素
+        const elements = {
+            barcodeInput: document.getElementById('barcode-input'),
+            barcodeError: document.getElementById('barcode-error'),
+            manualAddBtn: document.getElementById('manual-add-btn'),
+            startScanBtn: document.getElementById('start-scan-btn'),
+            stopScanBtn: document.getElementById('stop-scan-btn'),
+            scannerSection: document.getElementById('scanner-section'),
+            scanResult: document.getElementById('scan-result'),
+            availableItems: document.getElementById('available-items'),
+            selectedItems: document.getElementById('selected-items'),
+            selectedPlaceholder: document.getElementById('selected-placeholder'),
+            selectedCount: document.getElementById('selected-count'),
+            clearAllBtn: document.getElementById('clear-all-btn'),
+            scanLog: document.getElementById('scan-log'),
+            scanLogList: document.getElementById('scan-log-list'),
+            cameraSelect: document.getElementById('camera-select')
+        };
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            renderAvailableItems();
+            setupEventListeners();
+            updateSelectedItems();
+        });
+        
+        // 渲染可用項目
+        function renderAvailableItems() {
+            items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'flex items-center p-2 rounded-md hover:bg-gray-50 transition-colors';
+                itemDiv.id = `item-wrapper-${item.id}`;
+                itemDiv.innerHTML = `
+                    <input type="checkbox" id="${item.id}" value="${item.name}" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                    <label for="${item.id}" class="ml-3 flex-1 cursor-pointer">
+                        <span class="font-medium text-gray-700">${item.name}</span>
+                        <span class="text-xs text-gray-500 ml-2">條碼: ${item.barcode}</span>
+                    </label>
+                `;
+                elements.availableItems.appendChild(itemDiv);
+                const checkbox = itemDiv.querySelector('input[type="checkbox"]');
+                checkbox.addEventListener('change', handleCheckboxChange);
+            });
+        }
+        
+        // 設置事件監聽器
+        function setupEventListeners() {
+            // 手動輸入
+            elements.barcodeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processBarcode(elements.barcodeInput.value);
+                }
+            });
+            elements.manualAddBtn.addEventListener('click', () => {
+                processBarcode(elements.barcodeInput.value);
+            });
+            
+            // 掃描按鈕
+            elements.startScanBtn.addEventListener('click', startScanning);
+            elements.stopScanBtn.addEventListener('click', stopScanning);
+            
+            // 清除全部
+            elements.clearAllBtn.addEventListener('click', clearAllSelections);
+
+            // ✅ 修正：為相機選單添加切換事件
+            elements.cameraSelect.addEventListener('change', (event) => {
+                if (isScanning) {
+                    const newCameraId = event.target.value;
+                    console.log('切換相機:', newCameraId);
+                    
+                    // ✅ 修正：正確等待 Quagga 停止後再啟動新相機
+                    stopQuaggaInstance(() => {
+                        setTimeout(() => {
+                            if (isScanning) {
+                                startQuaggaInstance(newCameraId);
+                            }
+                        }, 200); // 增加延遲時間，確保完全釋放
+                    });
+                }
+            });
+        }
+        
+        // Checkbox 變更處理
+        function handleCheckboxChange(e) {
+            updateSelectedItems();
+        }
+        
+        // 更新已選項目
+        function updateSelectedItems() {
+            const checkboxes = document.querySelectorAll('#available-items input[type="checkbox"]:checked');
+            elements.selectedItems.innerHTML = '';
+            
+            if (checkboxes.length === 0) {
+                elements.selectedPlaceholder.classList.remove('hidden');
+                elements.clearAllBtn.classList.add('hidden');
+            } else {
+                elements.selectedPlaceholder.classList.add('hidden');
+                elements.clearAllBtn.classList.remove('hidden');
+                checkboxes.forEach(checkbox => {
+                    const item = items.find(i => i.id === checkbox.id);
+                    const selectedItem = document.createElement('div');
+                    selectedItem.className = 'flex items-center justify-between p-2 bg-white rounded-md mb-2 shadow-sm border border-gray-100';
+                    selectedItem.innerHTML = `
+                        <div>
+                            <span class="font-medium text-gray-800">${checkbox.value}</span>
+                            <span class="text-xs text-gray-500 ml-2">條碼: ${item.barcode}</span>
+                        </div>
+                        <button class="text-red-600 hover:text-red-800 text-sm" onclick="removeItem('${checkbox.id}')">移除</button>
+                    `;
+                    elements.selectedItems.appendChild(selectedItem);
+                });
+            }
+            
+            elements.selectedCount.textContent = `(${checkboxes.length})`;
+        }
+        
+        // 移除項目
+        function removeItem(itemId) {
+            const checkbox = document.getElementById(itemId);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateSelectedItems();
+            }
+        }
+        
+        // 清除全部選擇
+        function clearAllSelections() {
+            const checkboxes = document.querySelectorAll('#available-items input[type="checkbox"]');
+            checkboxes.forEach(checkbox => checkbox.checked = false);
+            updateSelectedItems();
+        }
+        
+        // 處理條碼
+        function processBarcode(barcode, fromScanner = false) {
+            barcode = barcode.trim();
+            if (!barcode) return;
+            
+            // 防重複掃描
+            if (fromScanner && barcode === lastScannedCode) {
+                return;
+            }
+            
+            if (fromScanner) {
+                lastScannedCode = barcode;
+                clearTimeout(scanCooldown);
+                scanCooldown = setTimeout(() => { lastScannedCode = ''; }, 2000);
+            }
+            
+            const item = items.find(i => i.barcode === barcode);
+            
+            if (item) {
+                const checkbox = document.getElementById(item.id);
+                if (checkbox && !checkbox.checked) {
+                    checkbox.checked = true;
+                    updateSelectedItems();
+                    
+                    elements.barcodeError.classList.add('hidden');
+                    elements.barcodeInput.value = '';
+                    
+                    if (fromScanner) {
+                        elements.scanResult.innerHTML = `<span class="text-green-600 font-medium">✓ 已添加: ${item.name}</span>`;
+                        const wrapper = document.getElementById(`item-wrapper-${item.id}`);
+                        if (wrapper) {
+                            wrapper.classList.add('scan-success');
+                            setTimeout(() => wrapper.classList.remove('scan-success'), 500);
+                        }
+                    }
+                } else if (checkbox && checkbox.checked) {
+                    if (fromScanner) {
+                        elements.scanResult.innerHTML = `<span class="text-yellow-600">⚠ ${item.name} 已在列表中</span>`;
+                    }
+                }
+            } else {
+                elements.barcodeError.classList.remove('hidden');
+                if (fromScanner) {
+                    elements.scanResult.innerHTML = `<span class="text-red-600">✗ 找不到條碼: ${barcode}</span>`;
+                }
+            }
+            
+            logScan(barcode, item);
+        }
+        
+        // 記錄掃描
+        function logScan(barcode, item) {
+            const time = new Date().toLocaleTimeString('zh-TW');
+            const logEntry = document.createElement('div');
+            logEntry.className = item ? 'text-green-700' : 'text-red-700';
+            logEntry.innerHTML = `${time} - ${barcode} ${item ? `→ ${item.name}` : '(未找到)'}`;
+            elements.scanLogList.insertBefore(logEntry, elements.scanLogList.firstChild);
+            while (elements.scanLogList.children.length > 10) {
+                elements.scanLogList.removeChild(elements.scanLogList.lastChild);
+            }
+            elements.scanLog.classList.remove('hidden');
+        }
+
+        // --- 掃描邏輯 ---
+
+        // 掃描成功回調
+        function onQuaggaDetected(data) {
+            if (!data || !data.codeResult) {
+                return;
+            }
+            const code = data.codeResult.code;
+            processBarcode(code, true); 
+        }
+
+        // 主要掃描啟動函數
+        async function startScanning() {
+            elements.startScanBtn.classList.add('hidden');
+            elements.stopScanBtn.classList.remove('hidden');
+            elements.scannerSection.classList.remove('hidden');
+            
+            // 清空舊的下拉選單
+            elements.cameraSelect.innerHTML = ''; 
+            isScanning = true;
+
+            // 第一次啟動時，傳入 null，讓 startQuaggaInstance 使用 facingMode
+            startQuaggaInstance(null);
+        }
+
+        // 啟動 Quagga 實例
+        function startQuaggaInstance(deviceId) {
+            // 動態設定約束
+            const constraints = {
+                width: { min: 640 },
+                height: { min: 480 },
+                aspectRatio: { min: 1, max: 2 },
+            };
+
+            if (deviceId) {
+                // 如果指定了 deviceId (用於切換鏡頭)，則使用它
+                constraints.deviceId = { exact: deviceId };
+                console.log('使用 deviceId 啟動:', deviceId);
+            } else {
+                // 如果 deviceId 為 null (第一次啟動)，則使用 facingMode
+                constraints.facingMode = "environment";
+                console.log('使用 facingMode: environment 啟動');
+            }
+
+            const config = {
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#reader'),
+                    constraints: constraints
+                },
+                decoder: {
+                    readers: [
+                        "code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader",
+                        "codabar_reader", "upc_reader", "upc_e_reader"
+                    ],
+                    debug: {
+                        drawBoundingBox: true,
+                        drawScanline: true,
+                    }
+                },
+                locate: true,
+                locator: {
+                    halfSample: true,
+                    patchSize: "medium",
+                },
+                numOfWorkers: navigator.hardwareConcurrency || 4,
+            };
+
+            Quagga.init(config, function(err) {
+                if (err) {
+                    console.error('Quagga 初始化失敗:', err);
+                    alert(`啟動掃描器失敗: ${err.name} - ${err.message}`);
+                    stopScanning();
+                    return;
+                }
+                console.log("Quagga 初始化成功，開始掃描...");
+                Quagga.onDetected(onQuaggaDetected);
+                Quagga.start();
+                
+                // 在啟動成功後，才填充攝影機列表
+                if (isScanning) {
+                    populateCameraSelect();
+                }
+            });
+        }
+        
+        // 填充攝影機下拉選單
+        async function populateCameraSelect() {
+            try {
+                // 此時權限已授予，可以獲取完整列表
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                if (videoDevices.length <= 1) {
+                    // 只有一個鏡頭，隱藏下拉選單
+                    elements.cameraSelect.classList.add('hidden');
+                    return;
+                }
+                
+                elements.cameraSelect.classList.remove('hidden');
+                elements.cameraSelect.innerHTML = '';
+
+                // 獲取當前正在運行的 video track
+                const currentStream = Quagga.CameraAccess.getActiveStream();
+                const currentDeviceId = currentStream.getVideoTracks()[0].getSettings().deviceId;
+
+                videoDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || `相機 ${videoDevices.indexOf(device) + 1}`;
+                    
+                    // 自動選中當前正在使用的鏡頭
+                    if (device.deviceId === currentDeviceId) {
+                        option.selected = true;
+                    }
+                    elements.cameraSelect.appendChild(option);
+                });
+
+            } catch (err) {
+                console.error('填充相機列表失敗:', err);
+            }
+        }
+
+        // ✅ 修正：停止 Quagga 實例並正確釋放攝影機資源
+        function stopQuaggaInstance(callback) {
+            console.log('停止 Quagga 實例...');
+            
+            try {
+                // ✅ 修正：手動停止所有 MediaStream tracks
+                const stream = Quagga.CameraAccess.getActiveStream();
+                if (stream) {
+                    stream.getTracks().forEach(track => {
+                        console.log('停止 track:', track.kind);
+                        track.stop();
+                    });
+                }
+                
+                // 移除事件監聽器
+                Quagga.offDetected(onQuaggaDetected);
+                
+                // 停止 Quagga
+                Quagga.stop();
+                console.log('Quagga 已停止');
+                
+                // 清理 DOM
+                const readerEl = document.querySelector('#reader');
+                if (readerEl) {
+                    readerEl.innerHTML = '';
+                }
+                
+            } catch (err) {
+                console.error('停止 Quagga 時發生錯誤:', err);
+            }
+            
+            // ✅ 修正：延遲執行回調，確保資源完全釋放
+            if (callback) {
+                setTimeout(callback, 100);
+            }
+        }
+
+        // ✅ 修正：停止掃描 (由按鈕觸發)
+        function stopScanning() {
+            if (!isScanning) return;
+            
+            console.log('停止掃描...');
+            
+            // ✅ 修正：先停止 Quagga，再更新 UI 和狀態
+            stopQuaggaInstance(() => {
+                // 在 Quagga 完全停止後才更新狀態
+                isScanning = false;
+                
+                // 更新 UI
+                elements.startScanBtn.classList.remove('hidden');
+                elements.stopScanBtn.classList.add('hidden');
+                elements.scannerSection.classList.add('hidden');
+                
+                elements.cameraSelect.innerHTML = '';
+                elements.scanResult.innerHTML = '<span class="text-gray-400">等待掃描條碼...</span>';
+                
+                clearTimeout(scanCooldown);
+                lastScannedCode = '';
+                
+                console.log('掃描完全停止');
+            });
+        }
+        
+    </script>
+</body>
+</html>
