@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>範例 03：多攝像頭切換 (Quagga2)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+
+    <style>
+        #reader {
+            position: relative;
+            width: 100%;
+            min-height: 300px;
+            background: #2c2c2c;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        #reader video, #reader canvas {
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+        }
+        #reader canvas.drawingBuffer {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div class="max-w-2xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">多攝像頭切換器</h1>
+
+        <!-- 控制按鈕 -->
+        <div class="mb-4 space-y-2">
+            <button id="start-btn" class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700">
+                啟動掃描
+            </button>
+            <button id="stop-btn" class="w-full bg-red-600 text-white px-4 py-3 rounded-md hover:bg-red-700 hidden">
+                停止掃描
+            </button>
+        </div>
+
+        <!-- 掃描預覽區 -->
+        <div id="scanner-section" class="hidden">
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-700">掃描預覽</h3>
+                    <span class="text-xs text-green-600 font-medium animate-pulse">● 掃描中...</span>
+                </div>
+
+                <!-- 攝像頭選擇器 -->
+                <div id="camera-selector" class="mb-3 hidden">
+                    <label for="camera-select" class="block text-xs text-gray-600 mb-1">選擇攝像頭：</label>
+                    <select id="camera-select" class="w-full text-sm p-2 border border-gray-300 rounded-md bg-white">
+                        <option value="">載入中...</option>
+                    </select>
+                </div>
+
+                <div id="reader"></div>
+                <div id="result" class="mt-3 p-3 bg-white rounded-md text-sm">
+                    <span class="text-gray-400">等待掃描條碼...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 攝像頭信息 -->
+        <div id="camera-info" class="mt-4 p-3 bg-blue-50 rounded-lg hidden">
+            <h3 class="text-sm font-semibold text-blue-800 mb-2">攝像頭資訊</h3>
+            <div id="camera-details" class="text-xs text-blue-700"></div>
+        </div>
+    </div>
+
+    <script>
+        let isScanning = false;
+        let currentStream = null;
+
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const scannerSection = document.getElementById('scanner-section');
+        const cameraSelector = document.getElementById('camera-selector');
+        const cameraSelect = document.getElementById('camera-select');
+        const resultDiv = document.getElementById('result');
+        const cameraInfo = document.getElementById('camera-info');
+        const cameraDetails = document.getElementById('camera-details');
+
+        // 啟動掃描
+        startBtn.addEventListener('click', startScanning);
+
+        // 停止掃描
+        stopBtn.addEventListener('click', stopScanning);
+
+        // 切換攝像頭
+        cameraSelect.addEventListener('change', async (e) => {
+            if (isScanning) {
+                const newCameraId = e.target.value;
+                console.log('切換攝像頭到:', newCameraId);
+
+                // 禁用選單防止重複切換
+                cameraSelect.disabled = true;
+
+                // 停止當前實例
+                await stopQuaggaInstance();
+
+                // 重新啟動新的攝像頭
+                setTimeout(() => {
+                    if (isScanning) {
+                        startQuaggaInstance(newCameraId);
+                        setTimeout(() => {
+                            cameraSelect.disabled = false;
+                        }, 500);
+                    }
+                }, 300);
+            }
+        });
+
+        async function startScanning() {
+            startBtn.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
+            scannerSection.classList.remove('hidden');
+            isScanning = true;
+
+            // 第一次啟動使用預設後置鏡頭
+            startQuaggaInstance(null);
+        }
+
+        function startQuaggaInstance(deviceId) {
+            const constraints = {
+                width: { min: 640 },
+                height: { min: 480 },
+                aspectRatio: { min: 1, max: 2 }
+            };
+
+            if (deviceId) {
+                constraints.deviceId = { exact: deviceId };
+                console.log('使用指定攝像頭:', deviceId);
+            } else {
+                constraints.facingMode = "environment";
+                console.log('使用預設後置鏡頭');
+            }
+
+            const config = {
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#reader'),
+                    constraints: constraints
+                },
+                decoder: {
+                    readers: [
+                        "code_128_reader", "ean_reader", "ean_8_reader",
+                        "code_39_reader", "upc_reader", "upc_e_reader"
+                    ],
+                    debug: {
+                        drawBoundingBox: true,
+                        drawScanline: true,
+                    }
+                },
+                locate: true
+            };
+
+            Quagga.init(config, function(err) {
+                if (err) {
+                    console.error('初始化失敗:', err);
+                    alert('無法啟動攝影機');
+                    stopScanning();
+                    return;
+                }
+
+                console.log("Quagga 初始化成功");
+                Quagga.onDetected(onBarcodeDetected);
+                Quagga.start();
+
+                // 獲取當前媒體流並顯示資訊
+                setTimeout(() => {
+                    const videoElement = document.querySelector('#reader video');
+                    if (videoElement && videoElement.srcObject) {
+                        currentStream = videoElement.srcObject;
+                        displayCameraInfo();
+                    }
+
+                    // 填充攝像頭列表
+                    if (isScanning) {
+                        populateCameraList();
+                    }
+                }, 500);
+            });
+        }
+
+        async function populateCameraList() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+                console.log('找到的攝像頭:', videoDevices);
+
+                if (videoDevices.length <= 1) {
+                    cameraSelector.classList.add('hidden');
+                    return;
+                }
+
+                cameraSelector.classList.remove('hidden');
+                cameraSelect.innerHTML = '';
+
+                // 獲取當前使用的攝像頭 ID
+                let currentDeviceId = null;
+                const videoElement = document.querySelector('#reader video');
+                if (videoElement && videoElement.srcObject) {
+                    const tracks = videoElement.srcObject.getVideoTracks();
+                    if (tracks.length > 0) {
+                        const settings = tracks[0].getSettings();
+                        currentDeviceId = settings.deviceId;
+                    }
+                }
+
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+
+                    // 辨識前置/後置鏡頭
+                    let label = device.label || `攝像頭 ${index + 1}`;
+                    if (label.toLowerCase().includes('front') || label.toLowerCase().includes('前')) {
+                        label = `前置鏡頭 ${index + 1}`;
+                    } else if (label.toLowerCase().includes('back') || label.toLowerCase().includes('rear') || label.toLowerCase().includes('後')) {
+                        label = `後置鏡頭 ${index + 1}`;
+                    } else {
+                        label = `攝像頭 ${index + 1}`;
+                    }
+
+                    option.textContent = label;
+
+                    // 標記當前使用的攝像頭
+                    if (device.deviceId === currentDeviceId) {
+                        option.selected = true;
+                    }
+
+                    cameraSelect.appendChild(option);
+                });
+
+            } catch (err) {
+                console.error('無法列舉攝像頭:', err);
+            }
+        }
+
+        function displayCameraInfo() {
+            if (!currentStream) return;
+
+            const tracks = currentStream.getVideoTracks();
+            if (tracks.length === 0) return;
+
+            const track = tracks[0];
+            const settings = track.getSettings();
+
+            cameraInfo.classList.remove('hidden');
+            cameraDetails.innerHTML = `
+                <div><strong>裝置名稱：</strong>${track.label || '未知'}</div>
+                <div><strong>解析度：</strong>${settings.width || '?'} x ${settings.height || '?'}</div>
+                <div><strong>幀率：</strong>${settings.frameRate || '?'} fps</div>
+                <div><strong>朝向：</strong>${settings.facingMode || '未知'}</div>
+            `;
+        }
+
+        async function stopQuaggaInstance() {
+            return new Promise((resolve) => {
+                console.log('停止 Quagga 實例...');
+
+                try {
+                    // 停止所有媒體流軌道
+                    if (currentStream) {
+                        currentStream.getTracks().forEach(track => {
+                            track.stop();
+                            console.log('已停止軌道:', track.label);
+                        });
+                        currentStream = null;
+                    }
+
+                    const videoElement = document.querySelector('#reader video');
+                    if (videoElement && videoElement.srcObject) {
+                        videoElement.srcObject.getTracks().forEach(track => track.stop());
+                        videoElement.srcObject = null;
+                    }
+
+                    Quagga.offDetected(onBarcodeDetected);
+                    Quagga.stop();
+
+                    // 清空 DOM
+                    const readerEl = document.querySelector('#reader');
+                    if (readerEl) {
+                        readerEl.innerHTML = '';
+                    }
+
+                } catch (err) {
+                    console.error('停止時發生錯誤:', err);
+                }
+
+                setTimeout(resolve, 200);
+            });
+        }
+
+        async function stopScanning() {
+            if (!isScanning) return;
+
+            isScanning = false;
+            stopBtn.disabled = true;
+
+            await stopQuaggaInstance();
+
+            // 更新 UI
+            startBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+            stopBtn.disabled = false;
+            scannerSection.classList.add('hidden');
+            cameraInfo.classList.add('hidden');
+            cameraSelector.classList.add('hidden');
+            cameraSelect.innerHTML = '<option value="">載入中...</option>';
+            resultDiv.innerHTML = '<span class="text-gray-400">等待掃描條碼...</span>';
+        }
+
+        function onBarcodeDetected(data) {
+            if (!data || !data.codeResult) return;
+
+            const code = data.codeResult.code;
+            const format = data.codeResult.format;
+
+            resultDiv.innerHTML = `
+                <div class="text-green-600 font-bold">✓ 掃描成功！</div>
+                <div class="mt-2 text-gray-700">
+                    <div><strong>條碼：</strong>${code}</div>
+                    <div><strong>格式：</strong>${format}</div>
+                </div>
+            `;
+        }
+    </script>
+
+</body>
+</html>

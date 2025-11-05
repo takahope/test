@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>範例 05：掃描日誌記錄器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div class="max-w-4xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">掃描日誌記錄器</h1>
+
+        <!-- 模擬操作按鈕 -->
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">模擬掃描操作</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <button onclick="simulateScan('success')" class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700">
+                    成功掃描
+                </button>
+                <button onclick="simulateScan('error')" class="px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700">
+                    掃描錯誤
+                </button>
+                <button onclick="simulateScan('duplicate')" class="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700">
+                    重複掃描
+                </button>
+                <button onclick="simulateScan('warning')" class="px-3 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
+                    警告訊息
+                </button>
+            </div>
+        </div>
+
+        <!-- 日誌顯示區 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 即時日誌 -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">即時日誌</h2>
+                    <div class="flex gap-2">
+                        <button id="pause-btn" class="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600">
+                            暫停
+                        </button>
+                        <button id="clear-btn" class="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                            清除
+                        </button>
+                    </div>
+                </div>
+                <div id="live-log" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs h-[400px] overflow-y-auto">
+                    <div class="text-gray-500">系統就緒，等待掃描...</div>
+                </div>
+            </div>
+
+            <!-- 分類日誌 -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">分類統計</h2>
+                    <button id="export-btn" class="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        匯出 CSV
+                    </button>
+                </div>
+                <div id="statistics" class="space-y-3 h-[400px] overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- 詳細日誌表格 -->
+        <div class="mt-6">
+            <h2 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">詳細記錄</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">#</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">時間</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">類型</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-600">訊息</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-table" class="divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">尚無記錄</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 日誌系統
+        const logs = [];
+        let isPaused = false;
+        let logCounter = 0;
+
+        // DOM 元素
+        const liveLogDiv = document.getElementById('live-log');
+        const statisticsDiv = document.getElementById('statistics');
+        const logTableBody = document.getElementById('log-table');
+        const pauseBtn = document.getElementById('pause-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const exportBtn = document.getElementById('export-btn');
+
+        // 日誌類型配置
+        const logTypes = {
+            success: { label: '成功', color: 'text-green-600', bgColor: 'bg-green-50', icon: '✓' },
+            error: { label: '錯誤', color: 'text-red-600', bgColor: 'bg-red-50', icon: '✗' },
+            duplicate: { label: '重複', color: 'text-yellow-600', bgColor: 'bg-yellow-50', icon: '⚠' },
+            warning: { label: '警告', color: 'text-orange-600', bgColor: 'bg-orange-50', icon: '!' },
+            info: { label: '資訊', color: 'text-blue-600', bgColor: 'bg-blue-50', icon: 'ℹ' }
+        };
+
+        // 事件監聽
+        pauseBtn.addEventListener('click', togglePause);
+        clearBtn.addEventListener('click', clearLogs);
+        exportBtn.addEventListener('click', exportToCSV);
+
+        // 模擬掃描
+        function simulateScan(type) {
+            const messages = {
+                success: ['掃描商品 A (條碼: 123456)', '掃描商品 B (條碼: 789012)', '掃描商品 C (條碼: 345678)'],
+                error: ['無法辨識條碼', '連線失敗', '資料庫查詢錯誤'],
+                duplicate: ['重複掃描商品 A', '該項目已存在於清單', '條碼已被記錄'],
+                warning: ['庫存不足', '即將過期', '價格異常']
+            };
+
+            const randomMessage = messages[type][Math.floor(Math.random() * messages[type].length)];
+            addLog(type, randomMessage);
+        }
+
+        // 添加日誌
+        function addLog(type, message) {
+            if (isPaused) return;
+
+            const timestamp = new Date();
+            const log = {
+                id: ++logCounter,
+                type,
+                message,
+                timestamp,
+                timeString: timestamp.toLocaleTimeString('zh-TW'),
+                dateString: timestamp.toLocaleDateString('zh-TW')
+            };
+
+            logs.unshift(log); // 新日誌插入到最前面
+
+            // 限制日誌數量（最多保留 100 條）
+            if (logs.length > 100) {
+                logs.pop();
+            }
+
+            updateLiveLog(log);
+            updateStatistics();
+            updateTable();
+        }
+
+        // 更新即時日誌顯示
+        function updateLiveLog(log) {
+            const config = logTypes[log.type];
+            const logLine = document.createElement('div');
+            logLine.className = 'mb-1';
+            logLine.innerHTML = `[${log.timeString}] <span class="${config.color}">${config.icon} ${config.label}</span> - ${log.message}`;
+
+            liveLogDiv.insertBefore(logLine, liveLogDiv.firstChild);
+
+            // 限制顯示行數
+            while (liveLogDiv.children.length > 50) {
+                liveLogDiv.removeChild(liveLogDiv.lastChild);
+            }
+
+            // 自動滾動到頂部
+            liveLogDiv.scrollTop = 0;
+        }
+
+        // 更新統計資訊
+        function updateStatistics() {
+            const stats = {};
+
+            logs.forEach(log => {
+                stats[log.type] = (stats[log.type] || 0) + 1;
+            });
+
+            statisticsDiv.innerHTML = Object.entries(logTypes).map(([type, config]) => {
+                const count = stats[type] || 0;
+                const percentage = logs.length > 0 ? ((count / logs.length) * 100).toFixed(1) : 0;
+
+                return `
+                    <div class="p-4 ${config.bgColor} rounded-lg border border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-2xl font-bold ${config.color}">${count}</div>
+                                <div class="text-sm text-gray-600">${config.label}</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-xl ${config.color}">${config.icon}</div>
+                                <div class="text-xs text-gray-500">${percentage}%</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 更新表格
+        function updateTable() {
+            if (logs.length === 0) {
+                logTableBody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">尚無記錄</td></tr>';
+                return;
+            }
+
+            logTableBody.innerHTML = logs.slice(0, 20).map(log => {
+                const config = logTypes[log.type];
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2 text-sm text-gray-600">${log.id}</td>
+                        <td class="px-4 py-2 text-xs text-gray-500">${log.timeString}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-block px-2 py-1 text-xs ${config.bgColor} ${config.color} rounded">
+                                ${config.icon} ${config.label}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2 text-sm text-gray-700">${log.message}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 暫停/繼續
+        function togglePause() {
+            isPaused = !isPaused;
+            pauseBtn.textContent = isPaused ? '繼續' : '暫停';
+            pauseBtn.classList.toggle('bg-green-500');
+            pauseBtn.classList.toggle('hover:bg-green-600');
+        }
+
+        // 清除日誌
+        function clearLogs() {
+            if (confirm('確定要清除所有日誌嗎？')) {
+                logs.length = 0;
+                logCounter = 0;
+                liveLogDiv.innerHTML = '<div class="text-gray-500">系統就緒，等待掃描...</div>';
+                updateStatistics();
+                updateTable();
+            }
+        }
+
+        // 匯出 CSV
+        function exportToCSV() {
+            if (logs.length === 0) {
+                alert('沒有可匯出的資料');
+                return;
+            }
+
+            let csv = '編號,日期,時間,類型,訊息\n';
+
+            logs.forEach(log => {
+                csv += `${log.id},${log.dateString},${log.timeString},${logTypes[log.type].label},"${log.message}"\n`;
+            });
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `scan_log_${new Date().toISOString().slice(0, 10)}.csv`;
+            link.click();
+        }
+
+        // 初始化統計顯示
+        updateStatistics();
+    </script>
+
+</body>
+</html>
