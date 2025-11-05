@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>範例 06：防重複掃描機制</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div class="max-w-4xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">防重複掃描機制</h1>
+
+        <!-- 設定區 -->
+        <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h3 class="text-sm font-semibold text-blue-800 mb-3">防重複設定</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">冷卻時間（秒）</label>
+                    <input type="number" id="cooldown-time" value="2" min="1" max="10"
+                           class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">防重複模式</label>
+                    <select id="prevention-mode" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                        <option value="cooldown">時間冷卻</option>
+                        <option value="strict">嚴格阻擋</option>
+                        <option value="warn">僅警告</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1">允許重複次數</label>
+                    <input type="number" id="max-duplicates" value="3" min="1" max="10"
+                           class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                </div>
+            </div>
+        </div>
+
+        <!-- 模擬掃描區 -->
+        <div class="mb-6">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">模擬掃描測試</h3>
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="barcode-input" placeholder="輸入條碼（例如：123456）"
+                       class="flex-1 px-3 py-2 border border-gray-300 rounded">
+                <button id="scan-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    掃描
+                </button>
+                <button id="quick-scan-btn" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                    快速連掃
+                </button>
+            </div>
+
+            <!-- 快捷掃描按鈕 -->
+            <div class="grid grid-cols-4 gap-2">
+                <button onclick="scanBarcode('111111')" class="px-3 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700">
+                    條碼 A
+                </button>
+                <button onclick="scanBarcode('222222')" class="px-3 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700">
+                    條碼 B
+                </button>
+                <button onclick="scanBarcode('333333')" class="px-3 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700">
+                    條碼 C
+                </button>
+                <button onclick="scanBarcode('444444')" class="px-3 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700">
+                    條碼 D
+                </button>
+            </div>
+        </div>
+
+        <!-- 狀態顯示 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 當前狀態 -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">掃描狀態</h3>
+                <div id="current-status" class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div class="mb-2">
+                        <span class="text-xs text-gray-600">最後掃描條碼：</span>
+                        <span id="last-barcode" class="text-sm font-bold text-gray-800">無</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs text-gray-600">冷卻剩餘時間：</span>
+                        <span id="cooldown-remaining" class="text-sm font-bold text-blue-600">0 秒</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs text-gray-600">重複嘗試次數：</span>
+                        <span id="duplicate-count" class="text-sm font-bold text-orange-600">0</span>
+                    </div>
+                    <div>
+                        <span class="text-xs text-gray-600">狀態：</span>
+                        <span id="scan-status" class="text-sm font-bold text-green-600">就緒</span>
+                    </div>
+                </div>
+
+                <!-- 冷卻進度條 -->
+                <div class="mt-3">
+                    <div class="bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div id="cooldown-progress" class="bg-blue-600 h-full transition-all duration-100" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 掃描記錄 -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-3">
+                    掃描記錄 <span id="record-count" class="text-sm font-normal text-gray-500">(0)</span>
+                </h3>
+                <div id="scan-records" class="max-h-[300px] overflow-y-auto bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <p class="text-gray-400 text-sm">尚無掃描記錄...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 統計資訊 -->
+        <div class="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
+            <h3 class="text-sm font-semibold text-green-800 mb-2">統計資訊</h3>
+            <div class="grid grid-cols-4 gap-4 text-center">
+                <div>
+                    <div class="text-2xl font-bold text-green-600" id="total-scans">0</div>
+                    <div class="text-xs text-gray-600">總掃描次數</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-bold text-blue-600" id="unique-scans">0</div>
+                    <div class="text-xs text-gray-600">不重複條碼</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-bold text-orange-600" id="blocked-scans">0</div>
+                    <div class="text-xs text-gray-600">阻擋次數</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-bold text-red-600" id="duplicate-scans">0</div>
+                    <div class="text-xs text-gray-600">重複掃描</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 掃描狀態管理
+        let lastScannedCode = '';
+        let scanCooldown = null;
+        let cooldownRemaining = 0;
+        let cooldownInterval = null;
+        let duplicateAttempts = 0;
+
+        // 統計數據
+        const stats = {
+            total: 0,
+            unique: 0,
+            blocked: 0,
+            duplicate: 0
+        };
+
+        const scannedBarcodes = new Set();
+        const scanRecords = [];
+
+        // DOM 元素
+        const barcodeInput = document.getElementById('barcode-input');
+        const scanBtn = document.getElementById('scan-btn');
+        const quickScanBtn = document.getElementById('quick-scan-btn');
+        const cooldownTimeInput = document.getElementById('cooldown-time');
+        const preventionModeSelect = document.getElementById('prevention-mode');
+        const maxDuplicatesInput = document.getElementById('max-duplicates');
+
+        // 狀態顯示元素
+        const lastBarcodeSpan = document.getElementById('last-barcode');
+        const cooldownRemainingSpan = document.getElementById('cooldown-remaining');
+        const duplicateCountSpan = document.getElementById('duplicate-count');
+        const scanStatusSpan = document.getElementById('scan-status');
+        const cooldownProgress = document.getElementById('cooldown-progress');
+        const scanRecordsDiv = document.getElementById('scan-records');
+        const recordCountSpan = document.getElementById('record-count');
+
+        // 事件監聽
+        scanBtn.addEventListener('click', () => {
+            const barcode = barcodeInput.value.trim();
+            if (barcode) {
+                scanBarcode(barcode);
+                barcodeInput.value = '';
+            }
+        });
+
+        barcodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                scanBtn.click();
+            }
+        });
+
+        quickScanBtn.addEventListener('click', () => {
+            // 快速連續掃描同一條碼
+            const barcode = barcodeInput.value.trim() || '123456';
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => scanBarcode(barcode), i * 300);
+            }
+        });
+
+        // 主要掃描函數
+        function scanBarcode(barcode) {
+            stats.total++;
+
+            const mode = preventionModeSelect.value;
+            const maxDuplicates = parseInt(maxDuplicatesInput.value);
+
+            // 檢查是否為重複掃描
+            const isDuplicate = (barcode === lastScannedCode && scanCooldown);
+
+            if (isDuplicate) {
+                duplicateAttempts++;
+                duplicateCountSpan.textContent = duplicateAttempts;
+                stats.duplicate++;
+
+                // 根據模式處理
+                if (mode === 'strict') {
+                    addRecord('blocked', barcode, '嚴格模式：阻擋重複掃描');
+                    stats.blocked++;
+                    updateStatus('blocked', `阻擋重複掃描 (冷卻中: ${cooldownRemaining}秒)`);
+                    updateStats();
+                    return;
+                } else if (mode === 'warn') {
+                    addRecord('warning', barcode, `警告：重複掃描 (第 ${duplicateAttempts} 次)`);
+                    updateStatus('warning', '允許但發出警告');
+                } else if (mode === 'cooldown') {
+                    if (duplicateAttempts >= maxDuplicates) {
+                        addRecord('blocked', barcode, `達到最大重複次數 (${maxDuplicates})`);
+                        stats.blocked++;
+                        updateStatus('blocked', '達到最大重複次數');
+                        updateStats();
+                        return;
+                    } else {
+                        addRecord('warning', barcode, `冷卻期內重複掃描 (${duplicateAttempts}/${maxDuplicates})`);
+                        updateStatus('warning', '冷卻期內重複掃描');
+                    }
+                }
+            } else {
+                // 不是重複掃描，正常處理
+                addRecord('success', barcode, '掃描成功');
+                updateStatus('success', '掃描成功');
+
+                if (!scannedBarcodes.has(barcode)) {
+                    scannedBarcodes.add(barcode);
+                    stats.unique++;
+                }
+
+                // 重置重複計數
+                duplicateAttempts = 0;
+                duplicateCountSpan.textContent = '0';
+            }
+
+            // 設定新的冷卻期
+            lastScannedCode = barcode;
+            lastBarcodeSpan.textContent = barcode;
+
+            clearTimeout(scanCooldown);
+            clearInterval(cooldownInterval);
+
+            const cooldownSeconds = parseInt(cooldownTimeInput.value);
+            cooldownRemaining = cooldownSeconds;
+
+            scanCooldown = setTimeout(() => {
+                lastScannedCode = '';
+                cooldownRemaining = 0;
+                duplicateAttempts = 0;
+                duplicateCountSpan.textContent = '0';
+                updateCooldownDisplay();
+                updateStatus('ready', '就緒');
+            }, cooldownSeconds * 1000);
+
+            // 更新冷卻顯示
+            cooldownInterval = setInterval(() => {
+                cooldownRemaining -= 0.1;
+                if (cooldownRemaining <= 0) {
+                    clearInterval(cooldownInterval);
+                    cooldownRemaining = 0;
+                }
+                updateCooldownDisplay();
+            }, 100);
+
+            updateStats();
+        }
+
+        // 添加記錄
+        function addRecord(type, barcode, message) {
+            const timestamp = new Date().toLocaleTimeString('zh-TW');
+            const record = { type, barcode, message, timestamp };
+
+            scanRecords.unshift(record);
+
+            // 限制記錄數量
+            if (scanRecords.length > 50) {
+                scanRecords.pop();
+            }
+
+            updateRecordsDisplay();
+        }
+
+        // 更新記錄顯示
+        function updateRecordsDisplay() {
+            recordCountSpan.textContent = `(${scanRecords.length})`;
+
+            if (scanRecords.length === 0) {
+                scanRecordsDiv.innerHTML = '<p class="text-gray-400 text-sm">尚無掃描記錄...</p>';
+                return;
+            }
+
+            const typeConfig = {
+                success: { color: 'text-green-600', bg: 'bg-green-50', icon: '✓' },
+                warning: { color: 'text-orange-600', bg: 'bg-orange-50', icon: '⚠' },
+                blocked: { color: 'text-red-600', bg: 'bg-red-50', icon: '✗' }
+            };
+
+            scanRecordsDiv.innerHTML = scanRecords.map(record => {
+                const config = typeConfig[record.type];
+                return `
+                    <div class="mb-2 p-2 ${config.bg} rounded border border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <span class="${config.color} font-bold text-sm">${config.icon} ${record.barcode}</span>
+                            <span class="text-xs text-gray-500">${record.timestamp}</span>
+                        </div>
+                        <div class="text-xs text-gray-600 mt-1">${record.message}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 更新狀態顯示
+        function updateStatus(type, message) {
+            const statusConfig = {
+                ready: { color: 'text-green-600', text: '就緒' },
+                success: { color: 'text-green-600', text: '成功' },
+                warning: { color: 'text-orange-600', text: '警告' },
+                blocked: { color: 'text-red-600', text: '已阻擋' }
+            };
+
+            const config = statusConfig[type];
+            scanStatusSpan.className = `text-sm font-bold ${config.color}`;
+            scanStatusSpan.textContent = message || config.text;
+        }
+
+        // 更新冷卻顯示
+        function updateCooldownDisplay() {
+            cooldownRemainingSpan.textContent = `${cooldownRemaining.toFixed(1)} 秒`;
+
+            const cooldownSeconds = parseInt(cooldownTimeInput.value);
+            const progress = ((cooldownSeconds - cooldownRemaining) / cooldownSeconds) * 100;
+            cooldownProgress.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+        }
+
+        // 更新統計
+        function updateStats() {
+            document.getElementById('total-scans').textContent = stats.total;
+            document.getElementById('unique-scans').textContent = stats.unique;
+            document.getElementById('blocked-scans').textContent = stats.blocked;
+            document.getElementById('duplicate-scans').textContent = stats.duplicate;
+        }
+    </script>
+
+</body>
+</html>

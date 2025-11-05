@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>範例 04：項目選擇管理器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        @keyframes selectSuccess {
+            0% { background-color: rgb(59, 130, 246); transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { background-color: rgb(239, 246, 255); transform: scale(1); }
+        }
+        .select-animation {
+            animation: selectSuccess 0.5s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div class="max-w-5xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">項目選擇管理器</h1>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 可用項目列表 -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">可用項目</h2>
+                    <button id="select-all-btn" class="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        全選
+                    </button>
+                </div>
+                <div id="available-items" class="space-y-2 max-h-[500px] overflow-y-auto pr-2"></div>
+            </div>
+
+            <!-- 已選項目列表 -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">
+                        已選項目 <span id="selected-count" class="text-sm font-normal text-gray-500">(0)</span>
+                    </h2>
+                    <button id="clear-all-btn" class="text-xs px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 hidden">
+                        清除全部
+                    </button>
+                </div>
+                <div id="selected-items" class="min-h-[100px] max-h-[500px] overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200">
+                    <p id="selected-placeholder" class="text-gray-400 text-sm">尚未選擇任何項目...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 摘要統計 -->
+        <div id="summary" class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 hidden">
+            <h3 class="text-sm font-semibold text-blue-800 mb-2">選擇摘要</h3>
+            <div id="summary-content" class="text-xs text-blue-700"></div>
+        </div>
+    </div>
+
+    <script>
+        // 模擬商品數據
+        const items = [
+            { id: 'item1', name: '筆記型電腦', category: '電子產品', price: 30000 },
+            { id: 'item2', name: '無線滑鼠', category: '電子產品', price: 500 },
+            { id: 'item3', name: '機械鍵盤', category: '電子產品', price: 2500 },
+            { id: 'item4', name: '辦公椅', category: '家具', price: 5000 },
+            { id: 'item5', name: '書桌', category: '家具', price: 8000 },
+            { id: 'item6', name: '檯燈', category: '家具', price: 1200 },
+            { id: 'item7', name: '咖啡機', category: '家電', price: 3500 },
+            { id: 'item8', name: '電風扇', category: '家電', price: 1800 },
+            { id: 'item9', name: '空氣清淨機', category: '家電', price: 6500 },
+            { id: 'item10', name: '投影機', category: '電子產品', price: 15000 },
+        ];
+
+        // DOM 元素
+        const availableItemsDiv = document.getElementById('available-items');
+        const selectedItemsDiv = document.getElementById('selected-items');
+        const selectedPlaceholder = document.getElementById('selected-placeholder');
+        const selectedCount = document.getElementById('selected-count');
+        const clearAllBtn = document.getElementById('clear-all-btn');
+        const selectAllBtn = document.getElementById('select-all-btn');
+        const summaryDiv = document.getElementById('summary');
+        const summaryContent = document.getElementById('summary-content');
+
+        // 初始化
+        renderAvailableItems();
+
+        // 事件監聽
+        selectAllBtn.addEventListener('click', selectAll);
+        clearAllBtn.addEventListener('click', clearAll);
+
+        // 渲染可用項目
+        function renderAvailableItems() {
+            items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'flex items-center p-3 rounded-md hover:bg-gray-50 transition-colors border border-transparent';
+                itemDiv.id = `item-wrapper-${item.id}`;
+
+                itemDiv.innerHTML = `
+                    <input
+                        type="checkbox"
+                        id="${item.id}"
+                        data-price="${item.price}"
+                        data-category="${item.category}"
+                        class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                    <label for="${item.id}" class="ml-3 flex-1 cursor-pointer">
+                        <div class="font-medium text-gray-700">${item.name}</div>
+                        <div class="text-xs text-gray-500">
+                            <span class="inline-block bg-gray-200 rounded px-2 py-0.5 mr-1">${item.category}</span>
+                            <span class="text-blue-600 font-semibold">NT$ ${item.price.toLocaleString()}</span>
+                        </div>
+                    </label>
+                `;
+
+                availableItemsDiv.appendChild(itemDiv);
+
+                const checkbox = itemDiv.querySelector('input[type="checkbox"]');
+                checkbox.addEventListener('change', handleCheckboxChange);
+            });
+        }
+
+        // 處理複選框變更
+        function handleCheckboxChange(e) {
+            const wrapper = e.target.closest('[id^="item-wrapper-"]');
+
+            if (e.target.checked) {
+                wrapper.classList.add('bg-blue-50', 'border-l-4', 'border-blue-500', 'select-animation');
+                setTimeout(() => {
+                    wrapper.classList.remove('select-animation');
+                }, 500);
+            } else {
+                wrapper.classList.remove('bg-blue-50', 'border-l-4', 'border-blue-500');
+            }
+
+            updateSelectedItems();
+        }
+
+        // 更新已選項目顯示
+        function updateSelectedItems() {
+            const checkedBoxes = document.querySelectorAll('#available-items input[type="checkbox"]:checked');
+            const count = checkedBoxes.length;
+
+            selectedCount.textContent = `(${count})`;
+
+            if (count > 0) {
+                selectedPlaceholder.classList.add('hidden');
+                clearAllBtn.classList.remove('hidden');
+                summaryDiv.classList.remove('hidden');
+
+                const selectedList = Array.from(checkedBoxes).map(cb => {
+                    const item = items.find(i => i.id === cb.id);
+                    return `
+                        <div class="bg-white p-3 rounded mb-2 flex items-center justify-between border border-gray-200 hover:shadow-sm transition-shadow">
+                            <div class="flex-1">
+                                <span class="font-medium text-gray-700">${item.name}</span>
+                                <span class="text-xs text-gray-500 ml-2">(NT$ ${item.price.toLocaleString()})</span>
+                            </div>
+                            <button
+                                onclick="document.getElementById('${cb.id}').click();"
+                                class="ml-2 text-red-500 hover:text-red-700 transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+
+                selectedItemsDiv.innerHTML = selectedList;
+
+                // 更新摘要統計
+                updateSummary(checkedBoxes);
+            } else {
+                selectedPlaceholder.classList.remove('hidden');
+                clearAllBtn.classList.add('hidden');
+                summaryDiv.classList.add('hidden');
+                selectedItemsDiv.innerHTML = '<p id="selected-placeholder" class="text-gray-400 text-sm">尚未選擇任何項目...</p>';
+            }
+        }
+
+        // 更新摘要統計
+        function updateSummary(checkedBoxes) {
+            let totalPrice = 0;
+            const categories = {};
+
+            Array.from(checkedBoxes).forEach(cb => {
+                const price = parseInt(cb.dataset.price);
+                const category = cb.dataset.category;
+
+                totalPrice += price;
+                categories[category] = (categories[category] || 0) + 1;
+            });
+
+            const categoryList = Object.entries(categories)
+                .map(([cat, count]) => `${cat}: ${count} 項`)
+                .join('、');
+
+            summaryContent.innerHTML = `
+                <div><strong>總數量：</strong>${checkedBoxes.length} 項</div>
+                <div><strong>總金額：</strong>NT$ ${totalPrice.toLocaleString()}</div>
+                <div><strong>類別分佈：</strong>${categoryList}</div>
+            `;
+        }
+
+        // 全選
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('#available-items input[type="checkbox"]:not(:checked)');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+                cb.dispatchEvent(new Event('change'));
+            });
+        }
+
+        // 清除全部
+        function clearAll() {
+            if (confirm('確定要清除所有選擇嗎？')) {
+                const checkedBoxes = document.querySelectorAll('#available-items input[type="checkbox"]:checked');
+                checkedBoxes.forEach(cb => {
+                    cb.checked = false;
+                    const wrapper = cb.closest('[id^="item-wrapper-"]');
+                    wrapper.classList.remove('bg-blue-50', 'border-l-4', 'border-blue-500');
+                });
+                updateSelectedItems();
+            }
+        }
+    </script>
+
+</body>
+</html>
